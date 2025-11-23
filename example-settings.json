@@ -1,0 +1,6 @@
+{
+  "statusLine": {
+    "command": "node /path/to/.claude/statusline/enhanced-statusline.js",
+    "type": "command"
+  }
+}
