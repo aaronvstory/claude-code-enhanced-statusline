@@ -80,7 +80,7 @@ mkdir -p statusline
 cd statusline
 
 # Download the script
-curl -O https://raw.githubusercontent.com/YOUR-USERNAME/claude-code-enhanced-statusline/main/enhanced-statusline.js
+curl -O https://raw.githubusercontent.com/aaronvstory/claude-code-enhanced-statusline/main/enhanced-statusline.js
 
 # Make it executable (Linux/Mac only)
 chmod +x enhanced-statusline.js
