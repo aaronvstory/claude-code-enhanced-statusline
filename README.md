@@ -12,10 +12,11 @@ Context: ● ██░░░░░░░░░░░░░░░░░░ 9.2% [
 ### What You See
 
 **Top Line:**
+
 - 🤖 **Model**: Current Claude model (Sonnet 4.5, Opus, Haiku)
 - ⚡ **Separator**: Visual divider
 - 📁 **Directory**: Current working directory
-- 🌿 **Git Branch**: Current branch with uncommitted changes indicator (*)
+- 🌿 **Git Branch**: Current branch with uncommitted changes indicator (\*)
 - 📅 **Date**: Current date (MM/DD/YY)
 - ⏰ **Time**: Current time (HH:MM:SS)
 - 📆 **Day**: Day of week
@@ -24,6 +25,7 @@ Context: ● ██░░░░░░░░░░░░░░░░░░ 9.2% [
 - 🔧 **Version**: Claude Code version
 
 **Bottom Line:**
+
 - **Context Usage**: Visual progress bar showing token usage
 - **● (green)**: Real token data from Claude API
 - **~ (yellow)**: Estimated token data
@@ -100,6 +102,7 @@ Add this to your `~/.claude/settings.json`:
 ```
 
 **Platform-specific paths:**
+
 - **Linux/Mac**: `"node /home/username/.claude/statusline/enhanced-statusline.js"`
 - **Windows**: `"node C:/Users/USERNAME/.claude/statusline/enhanced-statusline.js"`
 
@@ -109,11 +112,11 @@ Edit `enhanced-statusline.js` and update the weather configuration (lines 48-56)
 
 ```javascript
 const WEATHER_CONFIG = {
-    zipCode: '10001',              // Your zip code
-    cityName: 'New York,NY',       // Your city
-    latitude: 40.7128,             // Your latitude
-    longitude: -74.0060,           // Your longitude
-    defaultLocation: 'New York'    // Display name
+  zipCode: "10001", // Your zip code
+  cityName: "New York,NY", // Your city
+  latitude: 40.7128, // Your latitude
+  longitude: -74.006, // Your longitude
+  defaultLocation: "New York", // Display name
 };
 ```
 
@@ -129,14 +132,14 @@ The script uses ANSI color codes. You can customize them by editing the `colors`
 
 ```javascript
 const colors = {
-    reset: '\x1b[0m',
-    bright: '\x1b[1m',
-    dim: '\x1b[2m',
-    red: '\x1b[31m',
-    green: '\x1b[32m',
-    yellow: '\x1b[33m',
-    blue: '\x1b[34m',
-    // ... add more as needed
+  reset: "\x1b[0m",
+  bright: "\x1b[1m",
+  dim: "\x1b[2m",
+  red: "\x1b[31m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  blue: "\x1b[34m",
+  // ... add more as needed
 };
 ```
 
@@ -146,11 +149,11 @@ If you're using different Claude models, you can adjust token limits in the `TOK
 
 ```javascript
 const TOKEN_LIMITS = {
-    'opus': 200000,
-    'claude-3-opus': 200000,
-    'claude-3-sonnet': 200000,
-    'claude-3-haiku': 200000,
-    'default': 200000
+  opus: 200000,
+  "claude-3-opus": 200000,
+  "claude-3-sonnet": 200000,
+  "claude-3-haiku": 200000,
+  default: 200000,
 };
 ```
 
@@ -184,6 +187,7 @@ const BITCOIN_CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
 ### Token Usage Shows "~" (Estimated)
 
 This is normal! The script shows:
+
 - **● (green)**: Real data from Claude API responses
 - **~ (yellow)**: Estimated data (used when transcript isn't available yet)
 
@@ -200,6 +204,7 @@ git status  # Should show git info, not "not a git repository"
 ### Version Shows "v?.?.?"
 
 The script tries multiple methods to detect Claude version. If none work:
+
 - Ensure `claude` or `win-claude-code` is in your PATH
 - Or manually set version in the script
 
@@ -208,12 +213,14 @@ The script tries multiple methods to detect Claude version. If none work:
 Enable debug logging to troubleshoot issues:
 
 **Linux/Mac:**
+
 ```bash
 export DEBUG_STATUSLINE=1
 claude
 ```
 
 **Windows:**
+
 ```powershell
 $env:DEBUG_STATUSLINE=1
 claude
@@ -237,12 +244,12 @@ Modify the `getWeatherEmoji()` function to customize weather icons:
 
 ```javascript
 function getWeatherEmoji(condition) {
-    const conditionLower = condition.toLowerCase();
+  const conditionLower = condition.toLowerCase();
 
-    if (conditionLower.includes('sunny')) {
-        return '☀️';  // Change this to any emoji
-    }
-    // ... more conditions
+  if (conditionLower.includes("sunny")) {
+    return "☀️"; // Change this to any emoji
+  }
+  // ... more conditions
 }
 ```
 
@@ -276,6 +283,7 @@ Found a bug or want to add a feature?
 ## Changelog
 
 ### v1.0.0 (Initial Release)
+
 - Real token tracking from Claude API
 - Git branch integration
 - Weather API integration with caching
@@ -287,6 +295,7 @@ Found a bug or want to add a feature?
 ## Support
 
 If you find this useful, consider:
+
 - Starring the repository
 - Sharing with other Claude Code users
 - Reporting issues or suggesting features

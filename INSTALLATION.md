@@ -24,11 +24,11 @@ Edit `enhanced-statusline.js` and find the `WEATHER_CONFIG` section (around line
 
 ```javascript
 const WEATHER_CONFIG = {
-    zipCode: '10001',              // Change to YOUR zip code
-    cityName: 'New York,NY',       // Change to YOUR city
-    latitude: 40.7128,             // Change to YOUR latitude
-    longitude: -74.0060,           // Change to YOUR longitude
-    defaultLocation: 'New York'    // Change to YOUR location name
+  zipCode: "10001", // Change to YOUR zip code
+  cityName: "New York,NY", // Change to YOUR city
+  latitude: 40.7128, // Change to YOUR latitude
+  longitude: -74.006, // Change to YOUR longitude
+  defaultLocation: "New York", // Change to YOUR location name
 };
 ```
 
@@ -37,6 +37,7 @@ const WEATHER_CONFIG = {
 Add to your `~/.claude/settings.json`:
 
 ### Linux/Mac:
+
 ```json
 {
   "statusLine": {
@@ -47,6 +48,7 @@ Add to your `~/.claude/settings.json`:
 ```
 
 ### Windows:
+
 ```json
 {
   "statusLine": {
@@ -65,6 +67,7 @@ Quit Claude Code completely and relaunch it.
 ## 5. Verify
 
 You should see your new status line with:
+
 - Model name
 - Current directory
 - Git branch (if in a git repo)
@@ -77,18 +80,22 @@ You should see your new status line with:
 ## Troubleshooting
 
 ### Weather not showing?
+
 1. Check internet connection
 2. Verify your location configuration
 3. Try visiting https://wttr.in in your browser
 
 ### Bitcoin price not showing?
+
 1. Check internet connection
 2. Wait a few seconds for the first fetch
 
 ### Version shows "?.?.?"?
+
 This is normal if Claude Code isn't in your PATH. The statusline will still work fine.
 
 ### Token usage shows "~" instead of "●"?
+
 This is normal for the first message. After your first interaction, it should show "●" (real data).
 
 ## Debug Mode
@@ -96,12 +103,14 @@ This is normal for the first message. After your first interaction, it should sh
 Enable debug logging:
 
 **Linux/Mac:**
+
 ```bash
 export DEBUG_STATUSLINE=1
 claude
 ```
 
 **Windows:**
+
 ```powershell
 $env:DEBUG_STATUSLINE=1
 claude

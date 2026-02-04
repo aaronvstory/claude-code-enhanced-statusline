@@ -24,3 +24,8 @@ Thumbs.db
 # Environment variables
 .env
 .env.local
+
+# Credentials (never commit these)
+usage-credentials.json
+*.credentials.json
+fetch-claude-usage.cmd

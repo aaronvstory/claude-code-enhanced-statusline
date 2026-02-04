@@ -21,6 +21,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 const https = require('https');
 const os = require('os');
+// bplist-parser no longer needed - using direct API fetch for all usage data
 
 // ANSI color codes for terminal styling
 const colors = {
@@ -54,6 +55,17 @@ const WEATHER_CONFIG = {
     longitude: -74.0060,           // Your longitude (optional, for fallback)
     defaultLocation: 'New York'    // Display name when location unknown
 };
+
+// Claude Usage API Configuration (cross-platform)
+const USAGE_API_CONFIG = {
+    credentialsPath: path.join(os.homedir(), '.claude', 'usage-credentials.json'),
+    cacheDuration: 60 * 1000,  // 60 seconds
+    apiBaseUrl: 'claude.ai'
+};
+
+// Unified usage cache (replaces separate plist and five-hour caches)
+const USAGE_API_CACHE_FILE = path.join(os.tmpdir(), 'claude-statusline-api-usage.json');
+const USAGE_API_CACHE_DURATION = USAGE_API_CONFIG.cacheDuration;
 
 // ========================================
 // END CONFIGURATION SECTION
@@ -126,13 +138,17 @@ function getActualTokenUsage(data) {
 
             // If we found actual usage data, calculate real context usage
             if (mostRecentUsage) {
-                // Calculate total context usage as Claude Code does:
-                // Total = input_tokens + cache_creation_input_tokens + cache_read_input_tokens
+                // Calculate total context usage with overhead multiplier (from L3's accurate formula)
+                // Total = (input_tokens + cache_creation + cache_read + output_tokens) * 1.2
+                // 1.2x accounts for MCP tool schemas (~40K), system prompts, plugin configs
                 const inputTokens = mostRecentUsage.input_tokens || 0;
                 const cacheCreationTokens = mostRecentUsage.cache_creation_input_tokens || 0;
                 const cacheReadTokens = mostRecentUsage.cache_read_input_tokens || 0;
+                const outputTokens = mostRecentUsage.output_tokens || 0;
 
-                const contextUsed = inputTokens + cacheCreationTokens + cacheReadTokens;
+                const OVERHEAD_MULTIPLIER = 1.2;
+                const rawContextUsed = inputTokens + cacheCreationTokens + cacheReadTokens + outputTokens;
+                const contextUsed = Math.round(rawContextUsed * OVERHEAD_MULTIPLIER);
                 const percentage = (contextUsed / tokenLimit) * 100;
 
                 // Debug logging if enabled
@@ -141,7 +157,9 @@ function getActualTokenUsage(data) {
                       Input tokens: ${inputTokens}
                       Cache creation tokens: ${cacheCreationTokens}
                       Cache read tokens: ${cacheReadTokens}
-                      Total context used: ${contextUsed}
+                      Output tokens: ${outputTokens}
+                      Raw context: ${rawContextUsed}
+                      With overhead (1.2x): ${contextUsed}
                       Token limit: ${tokenLimit}
                       Percentage: ${percentage.toFixed(2)}%
                       Messages: ${messageCount}`);
@@ -156,6 +174,8 @@ function getActualTokenUsage(data) {
                         inputTokens,
                         cacheCreationTokens,
                         cacheReadTokens,
+                        outputTokens,
+                        rawContext: rawContextUsed,
                         messageCount,
                         totalContext: contextUsed
                     }
@@ -349,6 +369,399 @@ function cacheBitcoin(bitcoinData) {
     } catch (error) {
         // Ignore cache write errors
     }
+}
+
+// ========================================
+// CLAUDE USAGE API FUNCTIONS (CROSS-PLATFORM)
+// ========================================
+
+// Function to get cached API usage data
+function getCachedApiUsage() {
+    try {
+        if (fs.existsSync(USAGE_API_CACHE_FILE)) {
+            const cached = JSON.parse(fs.readFileSync(USAGE_API_CACHE_FILE, 'utf8'));
+            const now = Date.now();
+
+            if (now - cached.timestamp < USAGE_API_CACHE_DURATION) {
+                return cached.data;
+            }
+        }
+    } catch (error) {
+        // Ignore cache errors and fetch fresh data
+    }
+    return null;
+}
+
+// Function to cache API usage data
+function cacheApiUsage(data) {
+    try {
+        const cacheData = {
+            timestamp: Date.now(),
+            data: data
+        };
+        fs.writeFileSync(USAGE_API_CACHE_FILE, JSON.stringify(cacheData));
+    } catch (error) {
+        // Ignore cache write errors
+    }
+}
+
+// Function to load credentials from config file
+function loadUsageCredentials() {
+    try {
+        if (!fs.existsSync(USAGE_API_CONFIG.credentialsPath)) {
+            return null;
+        }
+        const creds = JSON.parse(fs.readFileSync(USAGE_API_CONFIG.credentialsPath, 'utf8'));
+        if (!creds.sessionKey || !creds.orgId) {
+            return null;
+        }
+        return creds;
+    } catch (error) {
+        return null;
+    }
+}
+
+// Function to fetch usage data via Swift script (macOS) or fallback
+// Swift bypasses Cloudflare protection that blocks Node.js https requests
+function fetchClaudeApiUsage() {
+    return new Promise((resolve, reject) => {
+        // Check cache first
+        const cached = getCachedApiUsage();
+        if (cached) {
+            resolve(cached);
+            return;
+        }
+
+        // On macOS, use Swift script which bypasses Cloudflare
+        const scriptPath = path.join(os.homedir(), '.claude/fetch-claude-usage.swift');
+        if (os.platform() === 'darwin' && fs.existsSync(scriptPath)) {
+            try {
+                const output = execSync(scriptPath, {
+                    encoding: 'utf8',
+                    timeout: 5000,
+                    stdio: ['ignore', 'pipe', 'ignore']
+                }).trim();
+
+                // Parse output: "5|2026-02-04T13:00:00|45|2026-02-08T03:00:00|1|2026-02-08T19:00:00"
+                // Format: 5H_UTIL|5H_RESET|WEEKLY_UTIL|WEEKLY_RESET|SONNET_UTIL|SONNET_RESET
+                const parts = output.split('|');
+
+                if (parts[0].startsWith('ERROR')) {
+                    reject(new Error(output));
+                    return;
+                }
+
+                if (parts.length >= 6) {
+                    const usageData = {
+                        fiveHour: {
+                            utilization: parseInt(parts[0], 10) || 0,
+                            resetsAt: parts[1] || null
+                        },
+                        weekly: {
+                            utilization: parseInt(parts[2], 10) || 0,
+                            resetsAt: parts[3] || null
+                        },
+                        sonnet: {
+                            utilization: parseInt(parts[4], 10) || 0,
+                            resetsAt: parts[5] || null
+                        }
+                    };
+
+                    // Debug output
+                    if (process.env.DEBUG_STATUSLINE) {
+                        console.error(`[DEBUG] Claude API Usage (via Swift):
+                          5h: ${usageData.fiveHour.utilization}% (resets: ${usageData.fiveHour.resetsAt})
+                          Weekly: ${usageData.weekly.utilization}% (resets: ${usageData.weekly.resetsAt})
+                          Sonnet: ${usageData.sonnet.utilization}% (resets: ${usageData.sonnet.resetsAt})`);
+                    }
+
+                    // Cache the result
+                    cacheApiUsage(usageData);
+                    resolve(usageData);
+                    return;
+                }
+            } catch (error) {
+                if (process.env.DEBUG_STATUSLINE) {
+                    console.error(`[DEBUG] Swift script error: ${error.message}`);
+                }
+            }
+        }
+
+        // On Windows, use curl which bypasses Cloudflare better than Node.js https
+        if (os.platform() === 'win32') {
+            const creds = loadUsageCredentials();
+            if (creds && creds.sessionKey && creds.orgId) {
+                try {
+                    const curlCmd = `curl -s -H "Cookie: sessionKey=${creds.sessionKey}" -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" -H "Accept: application/json" "https://claude.ai/api/organizations/${creds.orgId}/usage"`;
+                    const output = execSync(curlCmd, {
+                        encoding: 'utf8',
+                        timeout: 10000,
+                        stdio: ['ignore', 'pipe', 'ignore'],
+                        shell: true
+                    }).trim();
+
+                    const json = JSON.parse(output);
+                    const fiveHour = json.five_hour || {};
+                    const sevenDay = json.seven_day || {};
+                    const sevenDaySonnet = json.seven_day_sonnet || {};
+
+                    const usageData = {
+                        fiveHour: {
+                            utilization: Math.round(fiveHour.utilization || 0),
+                            resetsAt: fiveHour.resets_at || null
+                        },
+                        weekly: {
+                            utilization: Math.round(sevenDay.utilization || 0),
+                            resetsAt: sevenDay.resets_at || null
+                        },
+                        sonnet: {
+                            utilization: Math.round(sevenDaySonnet.utilization || 0),
+                            resetsAt: sevenDaySonnet.resets_at || null
+                        }
+                    };
+
+                    if (process.env.DEBUG_STATUSLINE) {
+                        console.error(`[DEBUG] Claude API Usage (via curl/Windows):
+                          5h: ${usageData.fiveHour.utilization}% (resets: ${usageData.fiveHour.resetsAt})
+                          Weekly: ${usageData.weekly.utilization}% (resets: ${usageData.weekly.resetsAt})
+                          Sonnet: ${usageData.sonnet.utilization}% (resets: ${usageData.sonnet.resetsAt})`);
+                    }
+
+                    cacheApiUsage(usageData);
+                    resolve(usageData);
+                    return;
+                } catch (error) {
+                    if (process.env.DEBUG_STATUSLINE) {
+                        console.error(`[DEBUG] Windows curl error: ${error.message}`);
+                    }
+                    // Fall through to Node.js fallback
+                }
+            }
+        }
+
+        // Fallback: Try direct API call (may be blocked by Cloudflare on some networks)
+        const creds = loadUsageCredentials();
+        if (!creds) {
+            reject(new Error('No credentials configured'));
+            return;
+        }
+
+        // Validate orgId (no path traversal)
+        if (creds.orgId.includes('..') || creds.orgId.includes('/')) {
+            reject(new Error('Invalid organization ID'));
+            return;
+        }
+
+        const options = {
+            hostname: USAGE_API_CONFIG.apiBaseUrl,
+            port: 443,
+            path: `/api/organizations/${creds.orgId}/usage`,
+            method: 'GET',
+            headers: {
+                'Cookie': `sessionKey=${creds.sessionKey}`,
+                'Accept': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
+            },
+            timeout: 5000,
+            agent: httpsAgent
+        };
+
+        const req = https.request(options, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                if (res.statusCode !== 200) {
+                    reject(new Error(`API returned ${res.statusCode}`));
+                    return;
+                }
+
+                try {
+                    const json = JSON.parse(data);
+
+                    // Extract all usage data from API response
+                    const fiveHour = json.five_hour || {};
+                    const sevenDay = json.seven_day || {};
+                    const sevenDaySonnet = json.seven_day_sonnet || {};
+
+                    const usageData = {
+                        fiveHour: {
+                            utilization: Math.round(fiveHour.utilization || 0),
+                            resetsAt: fiveHour.resets_at || null
+                        },
+                        weekly: {
+                            utilization: Math.round(sevenDay.utilization || 0),
+                            resetsAt: sevenDay.resets_at || null
+                        },
+                        sonnet: {
+                            utilization: Math.round(sevenDaySonnet.utilization || 0),
+                            resetsAt: sevenDaySonnet.resets_at || null
+                        }
+                    };
+
+                    // Debug output
+                    if (process.env.DEBUG_STATUSLINE) {
+                        console.error(`[DEBUG] Claude API Usage (direct):
+                          5h: ${usageData.fiveHour.utilization}% (resets: ${usageData.fiveHour.resetsAt})
+                          Weekly: ${usageData.weekly.utilization}% (resets: ${usageData.weekly.resetsAt})
+                          Sonnet: ${usageData.sonnet.utilization}% (resets: ${usageData.sonnet.resetsAt})`);
+                    }
+
+                    // Cache the result
+                    cacheApiUsage(usageData);
+                    resolve(usageData);
+
+                } catch (parseError) {
+                    reject(new Error('Failed to parse API response'));
+                }
+            });
+        });
+
+        req.on('timeout', () => {
+            req.destroy();
+            reject(new Error('Request timeout'));
+        });
+
+        req.on('error', reject);
+        req.end();
+    });
+}
+
+// Function to format time until reset (handles ISO timestamps from API)
+function formatTimeUntilReset(resetTimestamp) {
+    try {
+        if (!resetTimestamp) return '';
+
+        // Parse ISO timestamp string (e.g., "2026-02-08T03:00:00")
+        let resetDate;
+        if (typeof resetTimestamp === 'string') {
+            resetDate = new Date(resetTimestamp);
+        } else if (typeof resetTimestamp === 'number') {
+            // Legacy: Convert Apple/Cocoa epoch (2001-01-01) to Unix epoch
+            resetDate = new Date((resetTimestamp + 978307200) * 1000);
+        } else {
+            return '';
+        }
+
+        // Calculate time remaining in milliseconds
+        const now = Date.now();
+        const remaining = resetDate.getTime() - now;
+
+        // If overdue or very soon
+        if (remaining <= 0) {
+            return 'soon';
+        }
+
+        // Convert to time units
+        const days = Math.floor(remaining / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((remaining % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+
+        // Format based on time remaining
+        if (days > 0) {
+            return `${days}d ${hours}h`;
+        } else if (hours > 0) {
+            return `${hours}h ${minutes}m`;
+        } else if (minutes > 0) {
+            return `${minutes}m`;
+        } else {
+            return 'soon';
+        }
+
+    } catch (error) {
+        return '';
+    }
+}
+
+// Helper function to format tokens (reusing existing pattern)
+function formatTokens(num) {
+    if (num >= 1000) {
+        return `${(num / 1000).toFixed(0)}K`;
+    }
+    return num.toString();
+}
+
+// ========================================
+// LEGACY COMPATIBILITY (removed - now using unified API)
+// ========================================
+// Five-hour and weekly data now come from fetchClaudeApiUsage()
+
+// Format ISO timestamp to HH:MM
+function formatResetTime(isoTimestamp) {
+    if (!isoTimestamp) return 'unknown';
+
+    try {
+        const date = new Date(isoTimestamp);
+        const hours = date.getHours().toString().padStart(2, '0');
+        const minutes = date.getMinutes().toString().padStart(2, '0');
+        return `${hours}:${minutes}`;
+    } catch (error) {
+        return 'unknown';
+    }
+}
+
+// Create simple progress bar with ▓ and ░ characters
+function createSimpleProgressBar(percentage, width = 10) {
+    const filled = Math.round((percentage / 100) * width);
+    const empty = width - filled;
+    return '▓'.repeat(filled) + '░'.repeat(empty);
+}
+
+// Function to build compact usage tracker parts for combined line
+// Now uses unified API data structure with fiveHour, weekly, and sonnet
+function buildUsageTrackerLine(apiUsageData) {
+    // Returns object with five-hour and weekly parts (or null if no data)
+    if (!apiUsageData) return null;
+
+    const parts = {};
+
+    // Five-hour usage (if available) - compact version
+    if (apiUsageData.fiveHour && apiUsageData.fiveHour.utilization !== undefined) {
+        const percentage = apiUsageData.fiveHour.utilization;
+        const simpleBar = createSimpleProgressBar(percentage, 5); // Shorter bar
+        const resetTime = formatResetTime(apiUsageData.fiveHour.resetsAt);
+
+        // Color code based on thresholds
+        let barColor = colors.green;
+        if (percentage > 70) barColor = colors.yellow;
+        if (percentage > 85) barColor = colors.red;
+
+        parts.fiveHour = `${colors.dim}5h:${colors.reset} ${barColor}${simpleBar}${colors.reset} ${percentage}% ${colors.dim}→${resetTime}${colors.reset}`;
+    }
+
+    // Weekly usage (if available) - compact version
+    if (apiUsageData.weekly && apiUsageData.weekly.utilization !== undefined) {
+        const percentage = apiUsageData.weekly.utilization;
+
+        // Color code based on percentage
+        let wkColor = colors.green;
+        if (percentage > 70) wkColor = colors.yellow;
+        if (percentage > 85) wkColor = colors.red;
+
+        const progressBar = createSimpleProgressBar(percentage, 6); // Shorter bar
+        const timeUntilReset = formatTimeUntilReset(apiUsageData.weekly.resetsAt);
+        const timeDisplay = timeUntilReset ? `${colors.dim}→${timeUntilReset}${colors.reset}` : '';
+
+        parts.weekly = `${colors.dim}Wk:${colors.reset} ${wkColor}${progressBar}${colors.reset} ${percentage}% ${timeDisplay}`;
+    }
+
+    // Sonnet weekly usage (if available and > 0) - compact version
+    if (apiUsageData.sonnet && apiUsageData.sonnet.utilization > 0) {
+        const percentage = apiUsageData.sonnet.utilization;
+
+        let snColor = colors.green;
+        if (percentage > 70) snColor = colors.yellow;
+        if (percentage > 85) snColor = colors.red;
+
+        const progressBar = createSimpleProgressBar(percentage, 4);
+        parts.sonnet = `${colors.dim}Sn:${colors.reset} ${snColor}${progressBar}${colors.reset} ${percentage}%`;
+    }
+
+    // Return parts object (or null if no data)
+    if (Object.keys(parts).length === 0) return null;
+    return parts;
 }
 
 // Function to get cached weather data
@@ -604,6 +1017,25 @@ async function generateStatusLine() {
                     getBitcoinPrice().catch(() => {});
                 }
 
+                // Get Claude API usage data (unified: 5h, weekly, sonnet)
+                let apiUsageData = getCachedApiUsage();
+                if (!apiUsageData) {
+                    try {
+                        apiUsageData = await Promise.race([
+                            fetchClaudeApiUsage(),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000))
+                        ]);
+                    } catch (error) {
+                        apiUsageData = null; // Not configured or error
+                        if (process.env.DEBUG_STATUSLINE) {
+                            console.error(`[DEBUG] API usage fetch error: ${error.message}`);
+                        }
+                    }
+                } else {
+                    // Background refresh for next time
+                    fetchClaudeApiUsage().catch(() => {});
+                }
+
                 // Build status line components
                 const statusComponents = [
                     `${colors.bright}${colors.cyan}🤖 ${model}${colors.reset}`,
@@ -701,14 +1133,40 @@ async function generateStatusLine() {
                     indicator = `${colors.dim}${colors.yellow}~${colors.reset}`; // Dimmed yellow for estimated
                 }
 
-                const contextLine = `${colors.dim}Context:${colors.reset} ${indicator} ${createProgressBar(contextUsage.percentage)} ${tokenDisplay}`;
+                // Build compact combined usage line with all three bars
+                const usageParts = [];
+
+                // Context usage (compact) - color code the percentage
+                let ctxColor = colors.green;
+                if (contextUsage.percentage > 70) ctxColor = colors.yellow;
+                if (contextUsage.percentage > 85) ctxColor = colors.red;
+
+                const contextPart = `${colors.dim}Ctx:${colors.reset} ${indicator} ${ctxColor}${createSimpleProgressBar(contextUsage.percentage, 6)}${colors.reset} ${contextUsage.percentage.toFixed(0)}% ${tokenDisplay}`;
+                usageParts.push(contextPart);
+
+                // Get Usage Tracker parts (five-hour, weekly, sonnet) from unified API
+                const usageTrackerParts = buildUsageTrackerLine(apiUsageData);
+                if (usageTrackerParts) {
+                    if (usageTrackerParts.fiveHour) {
+                        usageParts.push(usageTrackerParts.fiveHour);
+                    }
+                    if (usageTrackerParts.weekly) {
+                        usageParts.push(usageTrackerParts.weekly);
+                    }
+                    if (usageTrackerParts.sonnet) {
+                        usageParts.push(usageTrackerParts.sonnet);
+                    }
+                }
+
+                // Combine all usage parts into one line
+                const combinedUsageLine = usageParts.join(` ${colors.dim}│${colors.reset} `);
 
                 // Combine everything
                 const mainStatusLine = statusComponents.join(' │ ');
 
-                // Output the status lines
+                // Output the status lines (now just 2 lines total)
                 console.log(mainStatusLine);
-                console.log(contextLine);
+                console.log(combinedUsageLine);
 
                 resolve();
 
