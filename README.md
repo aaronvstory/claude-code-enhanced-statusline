@@ -2,6 +2,65 @@
 
 A feature-rich, two-line status bar for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with real-time model info, git status, weather, Bitcoin price, and **API quota tracking** (5-hour, weekly, and Sonnet usage bars with reset timers).
 
+**Cross-platform:** Works on Windows, macOS, and Linux. No platform-specific dependencies.
+
+---
+
+## AI Agent Quick Install
+
+> **For Claude Code, Codex, or any AI coding agent asked to "install this."**
+> Follow these steps exactly. Do NOT overwrite the user's existing `settings.json` — merge the `statusLine` key.
+
+### 1. Detect platform and set paths
+
+```
+# Resolve the actual home directory — do NOT use literal "USERNAME"
+# Linux/Mac: HOME_DIR = $HOME (e.g., /home/alice or /Users/alice)
+# Windows:   HOME_DIR = $USERPROFILE (e.g., C:\Users\alice)
+
+STATUSLINE_DIR = <HOME_DIR>/.claude/statusline
+SETTINGS_FILE  = <HOME_DIR>/.claude/settings.json
+SCRIPT_FILE    = <STATUSLINE_DIR>/enhanced-statusline.js
+```
+
+### 2. Download the script
+
+```bash
+mkdir -p "<STATUSLINE_DIR>"
+curl -o "<SCRIPT_FILE>" https://raw.githubusercontent.com/aaronvstory/claude-code-enhanced-statusline/master/enhanced-statusline.js
+```
+
+### 3. Merge into settings.json
+
+Read the existing `settings.json` (if any) and **merge** this key into it — do not replace the entire file:
+
+```json
+{
+  "statusLine": {
+    "command": "node <SCRIPT_FILE_WITH_FORWARD_SLASHES>",
+    "type": "command"
+  }
+}
+```
+
+Use forward slashes in the path on all platforms (e.g., `node C:/Users/alice/.claude/statusline/enhanced-statusline.js`).
+
+### 4. Weather (optional)
+
+Edit the `WEATHER_CONFIG` object near line 50 of `enhanced-statusline.js` to set the user's location (zip code, city, coordinates). If the user doesn't specify a location, the New York defaults are fine — weather will still work.
+
+### 5. Quota tracking (requires human action)
+
+Tell the user: *"To enable 5-hour/weekly/Sonnet quota bars, create `~/.claude/usage-credentials.json` with your `sessionKey` (from browser cookies on claude.ai) and `orgId` (from the claude.ai URL). This is optional — the statusline works without it."*
+
+The AI agent **cannot** obtain these credentials — the user must get them from their browser.
+
+### 6. Done
+
+Tell the user to restart Claude Code. The statusline will appear automatically.
+
+---
+
 ## Preview
 
 ```
